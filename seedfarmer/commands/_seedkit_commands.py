@@ -13,6 +13,8 @@
 #    limitations under the License.
 
 import logging
+import random
+import string
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from boto3 import Session
@@ -106,19 +108,28 @@ def deploy_seedkit(
     if stack_exists:
         deploy_id = stack_outputs.get("DeployId")
         _logger.info("Seedkit found with DeployId: %s", deploy_id)
+
+    deploy_id = deploy_id if deploy_id else "".join(random.choice(string.ascii_lowercase) for i in range(6))
     template_filename: Optional[str] = cfn_seedkit.synth(
-        seedkit_name=seedkit_name,
         deploy_id=deploy_id,
-        managed_policy_arns=managed_policy_arns,
-        deploy_codeartifact=deploy_codeartifact,
-        session=session,
-        vpc_id=vpc_id,
-        subnet_ids=subnet_ids,
-        security_group_ids=security_group_ids,
-        permissions_boundary_arn=permissions_boundary_arn,
         synthesize=synthesize,
         **kwargs,
     )
+
+    # Create parameters dictionary for CloudFormation
+    parameters = {
+        "SeedkitName": seedkit_name,
+        "DeployId": deploy_id,
+        "RolePrefix": kwargs.get("role_prefix", "/"),
+        "PolicyPrefix": kwargs.get("policy_prefix", "/"),
+        "ManagedPolicyArns": ",".join(managed_policy_arns or []),
+        "VpcId": vpc_id,
+        "SecurityGroupIds": ",".join(security_group_ids or []),
+        "SubnetIds": ",".join(subnet_ids or []),
+        "DeployCodeArtifact": str(deploy_codeartifact).lower(),
+        "PermissionsBoundaryArn": permissions_boundary_arn,
+    }
+
     if not synthesize:
         assert template_filename is not None, "Template filename is required"
         cfn.deploy_template(
@@ -126,6 +137,7 @@ def deploy_seedkit(
             filename=template_filename,
             seedkit_tag=f"codeseeder-{seedkit_name}",  # (LEGACY)
             session=session,
+            parameters=parameters,
         )
         _logger.info("Seedkit Deployed")
 
